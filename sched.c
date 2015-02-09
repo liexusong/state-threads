@@ -105,7 +105,7 @@ int st_poll(struct pollfd *pds, int npds, st_utime_t timeout)
   if (pq.on_ioq) {
     /* If we timed out, the pollq might still be on the ioq. Remove it */
     _ST_DEL_IOQ(pq);
-    (*_st_eventsys->pollset_del)(pds, npds);
+    (*_st_eventsys->pollset_del)(pds, npds); // 把文件句柄从epoll/kqueue中删除
   } else {
     /* Count the number of ready descriptors */
     for (pd = pds; pd < epd; pd++) {

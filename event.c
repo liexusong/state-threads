@@ -338,7 +338,7 @@ ST_HIDDEN void _st_select_dispatch(void)
             notify = 0;
             epds = pq->pds + pq->npds;
             pq_max_osfd = -1;
-      
+
             for (pds = pq->pds; pds < epds; pds++) {
                 osfd = pds->fd;
                 events = pds->events;
@@ -1045,6 +1045,7 @@ ST_HIDDEN int _st_epoll_init(void)
     _st_epoll_data->fd_hint = (fdlim > 0 && fdlim < ST_EPOLL_EVTLIST_SIZE) ?
         fdlim : ST_EPOLL_EVTLIST_SIZE;
 
+    // 创建epoll句柄
     if ((_st_epoll_data->epfd = epoll_create(_st_epoll_data->fd_hint)) < 0) {
         err = errno;
         rv = -1;
@@ -1278,11 +1279,13 @@ ST_HIDDEN void _st_epoll_dispatch(void)
             }
         }
 
+        // 遍历所有等待IO的线程
         for (q = _ST_IOQ.next; q != &_ST_IOQ; q = q->next) {
             pq = _ST_POLLQUEUE_PTR(q);
             notify = 0;
             epds = pq->pds + pq->npds;
 
+            // 遍历线程等待的所有文件句柄
             for (pds = pq->pds; pds < epds; pds++) {
                 if (_ST_EPOLL_REVENTS(pds->fd) == 0) {
                     pds->revents = 0;
@@ -1307,6 +1310,7 @@ ST_HIDDEN void _st_epoll_dispatch(void)
                     notify = 1;
                 }
             }
+
             if (notify) {
                 ST_REMOVE_LINK(&pq->links);
                 pq->on_ioq = 0;
