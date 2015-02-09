@@ -39,6 +39,17 @@
  * and consists of extensive modifications made during the year(s) 1999-2000.
  */
 
+
+/*
+ * state-threads的使用流程是:
+ * ==========================
+ * st_init();
+ * for (;;) {
+ *     st_thread_create();
+ * }
+ */
+
+
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -56,7 +67,9 @@ int _st_active_count = 0;       /* Active thread count */
 time_t _st_curr_time = 0;       /* Current time as returned by time(2) */
 st_utime_t _st_last_tset;       /* Last time it was fetched */
 
-
+/*
+ * 把一些文件句柄放到epoll/kqueue中进行监听, 直到有IO事件发生或者超时
+ */
 int st_poll(struct pollfd *pds, int npds, st_utime_t timeout)
 {
   struct pollfd *pd;
@@ -71,7 +84,7 @@ int st_poll(struct pollfd *pds, int npds, st_utime_t timeout)
     return -1;
   }
 
-  if ((*_st_eventsys->pollset_add)(pds, npds) < 0)
+  if ((*_st_eventsys->pollset_add)(pds, npds) < 0) // 添加到epoll/kqueue中进行监听
     return -1;
 
   pq.pds = pds;
@@ -83,7 +96,10 @@ int st_poll(struct pollfd *pds, int npds, st_utime_t timeout)
     _ST_ADD_SLEEPQ(me, timeout);
   me->state = _ST_ST_IO_WAIT;
 
+  // 选择其他线程运行
   _ST_SWITCH_CONTEXT(me);
+
+  // 回到当前线程
 
   n = 0;
   if (pq.on_ioq) {
@@ -108,11 +124,14 @@ int st_poll(struct pollfd *pds, int npds, st_utime_t timeout)
 }
 
 
+/*
+ * state-threads的调度算法, 这个函数会在 _ST_SWITCH_CONTEXT() 时被调用
+ */
 void _st_vp_schedule(void)
 {
   _st_thread_t *thread;
 
-  if (_ST_RUNQ.next != &_ST_RUNQ) {
+  if (_ST_RUNQ.next != &_ST_RUNQ) { // 从运行队列中取得一个线程
     /* Pull thread off of the run queue */
     thread = _ST_THREAD_PTR(_ST_RUNQ.next);
     _ST_DEL_RUNQ(thread);
@@ -124,12 +143,15 @@ void _st_vp_schedule(void)
 
   /* Resume the thread */
   thread->state = _ST_ST_RUNNING;
-  _ST_RESTORE_CONTEXT(thread);
+  _ST_RESTORE_CONTEXT(thread); // 跳到thread线程运行
 }
 
 
 /*
  * Initialize this Virtual Processor
+ *
+ * 初始化state-threads
+ *
  */
 int st_init(void)
 {
@@ -143,11 +165,12 @@ int st_init(void)
   /* We can ignore return value here */
   st_set_eventsys(ST_EVENTSYS_DEFAULT);
 
-  if (_st_io_init() < 0)
+  if (_st_io_init() < 0) // 初始化IO接口(如accept/read/write等)
     return -1;
 
   memset(&_st_this_vp, 0, sizeof(_st_vp_t));
 
+  // 初始化各个队列
   ST_INIT_CLIST(&_ST_RUNQ);
   ST_INIT_CLIST(&_ST_IOQ);
   ST_INIT_CLIST(&_ST_ZOMBIEQ);
@@ -163,6 +186,9 @@ int st_init(void)
 
   /*
    * Create idle thread
+   * 创建空闲线程,
+   * 这个线程是当没有活跃线程时调用的,
+   * 作用是处理等待IO和睡眠的线程.
    */
   _st_this_vp.idle_thread = st_thread_create(_st_idle_thread_start,
 					     NULL, 0, 0);
@@ -174,6 +200,7 @@ int st_init(void)
 
   /*
    * Initialize primordial thread
+   * 为原生线程创建一个对象与之相关联
    */
   thread = (_st_thread_t *) calloc(1, sizeof(_st_thread_t) +
 				   (ST_KEYS_MAX * sizeof(void *)));
